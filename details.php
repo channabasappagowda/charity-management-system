@@ -1,4 +1,11 @@
 <?php
+
+session_start();
+
+if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
+    header("Location: login.php");
+    exit();
+}
 // Include database connection
 include "conn.php";
 
@@ -13,27 +20,39 @@ $requestsResult = $conn->query($requestsQuery);
 // Fetch contact messages from the database
 $contactMessagesQuery = "SELECT * FROM contact_messages";
 $contactMessagesResult = $conn->query($contactMessagesQuery);
+// Generate CSRF token
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
-// Handle record deletion
-if (isset($_GET['delete'])) {
-    $deleteId = $_GET['delete'];
-    $deleteType = $_GET['type']; // to know which table the record belongs to
+// Handle secure record deletion
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
 
-    if ($deleteType == 'donation') {
-        $deleteQuery = "DELETE FROM donations WHERE id = ?";
-    } elseif ($deleteType == 'request') {
-        $deleteQuery = "DELETE FROM donation_requests WHERE id = ?";
-    } elseif ($deleteType == 'message') {
-        $deleteQuery = "DELETE FROM contact_messages WHERE id = ?";
+    if (
+        !isset($_POST['csrf_token']) ||
+        !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])
+    ) {
+        die("Invalid CSRF token.");
     }
 
-    // Prepare and execute the deletion query
-    $stmt = $conn->prepare($deleteQuery);
-    $stmt->bind_param("i", $deleteId);
-    $stmt->execute();
-    $stmt->close();
+    $deleteId = filter_input(INPUT_POST, 'delete_id', FILTER_VALIDATE_INT);
+    $deleteType = $_POST['type'] ?? '';
 
-    // Redirect to prevent resubmission of the deletion request on page refresh
+    $allowedTables = [
+        'donation' => 'donations',
+        'request' => 'donation_requests',
+        'message' => 'contact_messages'
+    ];
+
+    if ($deleteId && isset($allowedTables[$deleteType])) {
+        $table = $allowedTables[$deleteType];
+
+        $stmt = $conn->prepare("DELETE FROM `$table` WHERE id = ?");
+        $stmt->bind_param("i", $deleteId);
+        $stmt->execute();
+        $stmt->close();
+    }
+
     header("Location: details.php");
     exit();
 }
@@ -208,9 +227,14 @@ if (isset($_GET['delete'])) {
                                 <a href='edit.php?id=" . $row['id'] . "&type=donation' class='btn'>
                                     <i class='fa-solid fa-pen-to-square'></i> Edit
                                 </a>
-                                <a href='details.php?delete=" . $row['id'] . "&type=donation' class='btn'>
-                                    <i class='fa-solid fa-trash'></i> Delete
-                                </a>
+                                <form method='POST' action='details.php' style='display:inline;'>
+    <input type='hidden' name='delete_id' value='" . (int)$row['id'] . "'>
+    <input type='hidden' name='type' value='donation'>
+    <input type='hidden' name='csrf_token' value='" . htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8') . "'>
+    <button type='submit' name='delete' class='btn'>
+        <i class='fa-solid fa-trash'></i> Delete
+    </button>
+</form>
                             </div>
                           </td>";
                     echo "</tr>";
@@ -253,9 +277,14 @@ if (isset($_GET['delete'])) {
                                 <a href='edit.php?id=" . $row['id'] . "&type=request' class='btn'>
                                     <i class='fa-solid fa-pen-to-square'></i> Edit
                                 </a>
-                                <a href='details.php?delete=" . $row['id'] . "&type=request' class='btn'>
-                                    <i class='fa-solid fa-trash'></i> Delete
-                                </a>
+                                <form method='POST' action='details.php' style='display:inline;'>
+    <input type='hidden' name='delete_id' value='" . (int)$row['id'] . "'>
+    <input type='hidden' name='type' value='request'>
+    <input type='hidden' name='csrf_token' value='" . htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8') . "'>
+    <button type='submit' name='delete' class='btn'>
+        <i class='fa-solid fa-trash'></i> Delete
+    </button>
+</form>
                             </div>
                           </td>";
                     echo "</tr>";
@@ -293,9 +322,14 @@ if (isset($_GET['delete'])) {
                                 <a href='edit.php?id=" . $row['id'] . "&type=message' class='btn'>
                                     <i class='fa-solid fa-pen-to-square'></i> Edit
                                 </a>
-                                <a href='details.php?delete=" . $row['id'] . "&type=message' class='btn'>
-                                    <i class='fa-solid fa-trash'></i> Delete
-                                </a>
+                                <form method='POST' action='details.php' style='display:inline;'>
+    <input type='hidden' name='delete_id' value='" . (int)$row['id'] . "'>
+    <input type='hidden' name='type' value='message'>
+    <input type='hidden' name='csrf_token' value='" . htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8') . "'>
+    <button type='submit' name='delete' class='btn'>
+        <i class='fa-solid fa-trash'></i> Delete
+    </button>
+</form>
                             </div>
                           </td>";
                     echo "</tr>";

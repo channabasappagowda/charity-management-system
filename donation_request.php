@@ -1,3 +1,11 @@
+<?php
+session_start();
+
+// Generate CSRF token
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -125,6 +133,7 @@
       <h1><i class="fa-solid fa-handshake-simple"></i>&nbsp;&nbsp;&nbsp;Request for Donation</h1>
       <p>If you're in need of assistance, please fill out the form below to request a donation. We'll review your request and reach out soon.</p>
       <form action="donation_request.php" method="post">
+      <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
         <div class="form-group">
           <label for="name"><i class="fa-solid fa-pen-nib"></i>&nbsp;&nbsp;&nbsp;Full Name:</label>
           <input type="text" id="name" name="name" placeholder="Enter your full name" required>
@@ -166,35 +175,47 @@
   </footer>
 
   <?php
-  // Include database connection
-  include "conn.php";
+// Include database connection
+include "conn.php";
 
-  // Check if the form was submitted
-  if ($_SERVER["REQUEST_METHOD"] == "POST") {
-      // Get form data
-      $name = trim($_POST['name']);
-      $email = trim($_POST['email']);
-      $phone = trim($_POST['phone']);
-      $category = trim($_POST['category']);
-      $description = trim($_POST['description']);
+// Check if the form was submitted
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
-      // Validate inputs
-      if (empty($name) || empty($email) || empty($phone) || empty($category) || empty($description)) {
-          echo "<script>alert('All fields are required!'); window.location.href='donation_request.php';</script>";
-          exit();
-      }
+    // Verify CSRF token
+    if (
+        !isset($_POST['csrf_token']) ||
+        !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])
+    ) {
+        die("Invalid CSRF token.");
+    }
 
-      // Insert donation request into the database
-      $stmt = $conn->prepare("INSERT INTO donation_requests (name, email, phone, category, description) VALUES (?, ?, ?, ?, ?)");
-      $stmt->bind_param("sssss", $name, $email, $phone, $category, $description);
+    // Get form data
+    $name = trim($_POST['name'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $phone = trim($_POST['phone'] ?? '');
+    $category = trim($_POST['category'] ?? '');
+    $description = trim($_POST['description'] ?? '');
 
-      if ($stmt->execute()) {
-          echo "<script>alert('Request submitted successfully. We will contact you soon!'); window.location.href='donation_request.php';</script>";
-      } else {
-          echo "Error: " . $stmt->error;
-      }
-  }
-  ?>
+    // Validate inputs
+    if (empty($name) || empty($email) || empty($phone) || empty($category) || empty($description)) {
+        echo "<script>alert('All fields are required!'); window.location.href='donation_request.php';</script>";
+        exit();
+    }
 
+    // Insert donation request into the database
+    $stmt = $conn->prepare("INSERT INTO donation_requests (name, email, phone, category, description) VALUES (?, ?, ?, ?, ?)");
+    $stmt->bind_param("sssss", $name, $email, $phone, $category, $description);
+
+    if ($stmt->execute()) {
+        echo "<script>alert('Request submitted successfully. We will contact you soon!'); window.location.href='donation_request.php';</script>";
+        exit();
+    } else {
+        error_log("Database error: " . $stmt->error);
+        echo "Something went wrong. Please try again later.";
+    }
+
+    $stmt->close();
+}
+?>
 </body>
 </html>

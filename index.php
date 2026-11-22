@@ -4,10 +4,44 @@ session_start(); // Start the session
 // Set the page title dynamically (you can set this based on the page's content)
 $pageTitle = "Raising Hope Charity - Home"; // Set a default title here or dynamically based on the page
 
+// Generate CSRF token
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 // Handle Logout Request
 if (isset($_POST['logout'])) {
-    session_destroy(); // Destroy the session
-    header("Location: login.php"); // Redirect to login page
+
+    // Verify CSRF token
+    if (
+        !isset($_POST['csrf_token']) ||
+        !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])
+    ) {
+        die("Invalid CSRF token.");
+    }
+
+    // Clear all session variables
+    $_SESSION = [];
+
+    // Delete the session cookie
+    if (ini_get("session.use_cookies")) {
+        $params = session_get_cookie_params();
+
+        setcookie(
+            session_name(),
+            '',
+            time() - 42000,
+            $params['path'],
+            $params['domain'],
+            $params['secure'],
+            $params['httponly']
+        );
+    }
+
+    // Destroy the session
+    session_destroy();
+
+    header("Location: login.php");
     exit();
 }
 ?>
@@ -171,8 +205,11 @@ if (isset($_POST['logout'])) {
     </nav>
     <!-- Logout Button -->
     <form method="post" style="margin: 0;">
-      <button class="logout-btn" name="logout"><i class="fa-solid fa-right-from-bracket"></i>&nbsp;&nbsp;&nbsp;Logout</button>
-    </form>
+    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
+    <button type="submit" class="logout-btn" name="logout">
+        <i class="fa-solid fa-right-from-bracket"></i>&nbsp;&nbsp;&nbsp;Logout
+    </button>
+</form>
   </header>
 
   <section class="hero">

@@ -1,69 +1,117 @@
 <?php
+
+session_start();
+
+if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
+    header("Location: login.php");
+    exit();
+}
 // Include database connection
 include "conn.php";
+// Validate record details from the URL
+$id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
+$type = $_GET['type'] ?? '';
 
-// Get record details from the URL
-$id = $_GET['id'];
-$type = $_GET['type'];
+$allowedTables = [
+    'donation' => 'donations',
+    'request' => 'donation_requests',
+    'message' => 'contact_messages'
+];
 
-// Fetch the record based on the type
-if ($type == 'donation') {
-    $query = "SELECT * FROM donations WHERE id = ?";
-} elseif ($type == 'request') {
-    $query = "SELECT * FROM donation_requests WHERE id = ?";
-} elseif ($type == 'message') {
-    $query = "SELECT * FROM contact_messages WHERE id = ?";
+if (!$id || !isset($allowedTables[$type])) {
+    die("Invalid record ID or type.");
 }
 
-$stmt = $conn->prepare($query);
+// Fetch the record based on the type
+$table = $allowedTables[$type];
+
+$stmt = $conn->prepare("SELECT * FROM `$table` WHERE id = ?");
 $stmt->bind_param("i", $id);
 $stmt->execute();
 $result = $stmt->get_result();
 $row = $result->fetch_assoc();
 
+if (!$row) {
+    die("Record not found.");
+}
+// Generate CSRF token
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+// Handle form submission for updating
 // Handle form submission for updating
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $name = $_POST['name'];
-    $email = $_POST['email'];
-    
+
+    // Verify CSRF token
+    if (
+        !isset($_POST['csrf_token']) ||
+        !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])
+    ) {
+        die("Invalid CSRF token.");
+    }
+
+    // Validate common fields
+    $name = trim($_POST['name'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+
+    if ($name === '' || strlen($name) > 255) {
+        die("Invalid name.");
+    }
+
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        die("Invalid email address.");
+    }
+
     if ($type == 'donation') {
-        $campaign = $_POST['campaign'];
-        $amount = $_POST['amount'];
+
+        $campaign = trim($_POST['campaign'] ?? '');
+        $amount = $_POST['amount'] ?? '';
+
+        if ($campaign === '' || strlen($campaign) > 255) {
+            die("Invalid campaign name.");
+        }
+
+        if (!is_numeric($amount) || $amount <= 0 || $amount > 99999999.99) {
+            die("Donation amount must be greater than zero.");
+        }
+
+        $amount = (float)$amount;
+
         $updateQuery = "UPDATE donations SET name = ?, email = ?, campaign = ?, amount = ? WHERE id = ?";
         $stmt = $conn->prepare($updateQuery);
         $stmt->bind_param("sssdi", $name, $email, $campaign, $amount, $id);
+
     } elseif ($type == 'request') {
-        $category = $_POST['category'];
-        $description = $_POST['description'];
+
+        $category = trim($_POST['category'] ?? '');
+        $description = trim($_POST['description'] ?? '');
+
+        if ($category === '' || strlen($category) > 100 || $description === '') {
+            die("Invalid request details.");
+        }
+
         $updateQuery = "UPDATE donation_requests SET name = ?, email = ?, category = ?, description = ? WHERE id = ?";
         $stmt = $conn->prepare($updateQuery);
         $stmt->bind_param("ssssi", $name, $email, $category, $description, $id);
+
     } elseif ($type == 'message') {
-        $message = $_POST['message'];
+
+        $message = trim($_POST['message'] ?? '');
+
+        if ($message === '') {
+            die("Message cannot be empty.");
+        }
+
         $updateQuery = "UPDATE contact_messages SET name = ?, email = ?, message = ? WHERE id = ?";
         $stmt = $conn->prepare($updateQuery);
         $stmt->bind_param("sssi", $name, $email, $message, $id);
     }
 
     $stmt->execute();
-    header("Location: details.php"); // Redirect to the details page
-    exit();
-}
+    $stmt->close();
 
-// Handle record deletion
-if (isset($_GET['delete'])) {
-    if ($type == 'donation') {
-        $deleteQuery = "DELETE FROM donations WHERE id = ?";
-    } elseif ($type == 'request') {
-        $deleteQuery = "DELETE FROM donation_requests WHERE id = ?";
-    } elseif ($type == 'message') {
-        $deleteQuery = "DELETE FROM contact_messages WHERE id = ?";
-    }
-
-    $stmt = $conn->prepare($deleteQuery);
-    $stmt->bind_param("i", $id);
-    $stmt->execute();
-    header("Location: details.php"); // Redirect to the details page
+    header("Location: details.php");
     exit();
 }
 ?>
@@ -197,8 +245,8 @@ if (isset($_GET['delete'])) {
 <div class="container">
     <h1>Edit</h1>
 
-    <form action="edit.php?id=<?php echo $id; ?>&type=<?php echo $type; ?>" method="POST">
-
+    <form action="edit.php?id=<?php echo (int)$id; ?>&type=<?php echo htmlspecialchars($type, ENT_QUOTES, 'UTF-8'); ?>" method="POST">
+    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
         <!-- Dynamic fields based on type -->
         <?php if ($type == 'donation') { ?>
             <div class="form-group">

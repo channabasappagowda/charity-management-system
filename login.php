@@ -1,36 +1,87 @@
+
 <?php
-  // Start the session if needed
-  session_start();
-  include "conn.php";
+session_start();
+include "conn.php";
 
-  if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $email = $_POST['email'];
-    $password = $_POST['password'];
-    $role = $_POST['role'];
+// Generate CSRF token
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
-    $stmt = $conn->prepare("SELECT * FROM sign WHERE email = ? AND password = ? AND role = ?");
-    $stmt->bind_param("sss", $email, $password, $role);
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+      // Verify CSRF token
+    if (
+        !isset($_POST['csrf_token']) ||
+        !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])
+    ) {
+        die("Invalid CSRF token.");
+    }
+
+    $email = trim($_POST['email'] ?? '');
+    $password = $_POST['password'] ?? '';
+    $role = $_POST['role'] ?? '';
+
+    if ($email === '' || $password === '' ||
+        !in_array($role, ['user', 'admin'], true)) {
+        echo "<script>alert('Invalid email, password, or role.'); window.location.href='login.php';</script>";
+        exit();
+    }
+
+    // Find account using email and role
+    $stmt = $conn->prepare(
+        "SELECT * FROM sign WHERE email = ? AND role = ?"
+    );
+
+    $stmt->bind_param("ss", $email, $role);
     $stmt->execute();
     $result = $stmt->get_result();
     $row = $result->fetch_assoc();
+    $stmt->close();
 
-    if ($result->num_rows > 0) {
-        // Set session variables
-        $_SESSION['email'] = $email;
-        $_SESSION['role'] = $row['role'];
-
-        // Redirect based on role
-        if ($role == 'user') {
-            header("Location: index.php"); // Redirect to user homepage
-        } else if ($role == 'admin') {
-            header("Location: details.php"); // Redirect to admin dashboard
-        }
+    if (!$row) {
+        echo "<script>alert('Invalid email, password, or role.'); window.location.href='login.php';</script>";
         exit();
+    }
+
+    // Verify hashed password
+    if (password_verify($password, $row['password'])) {
+
+        // Password is already securely hashed
+
+    } elseif (hash_equals((string)$row['password'], $password)) {
+
+        // Convert an existing plain-text password to a hash
+        $newHash = password_hash($password, PASSWORD_DEFAULT);
+
+        $update = $conn->prepare(
+            "UPDATE sign SET password = ? WHERE email = ? AND role = ?"
+        );
+
+        $update->bind_param("sss", $newHash, $email, $role);
+        $update->execute();
+        $update->close();
+
     } else {
         echo "<script>alert('Invalid email, password, or role.'); window.location.href='login.php';</script>";
+        exit();
     }
+
+    // Create a new session ID after successful login
+    session_regenerate_id(true);
+
+    $_SESSION['email'] = $row['email'];
+    $_SESSION['role'] = $row['role'];
+
+    if ($role === 'user') {
+        header("Location: index.php");
+    } else {
+        header("Location: details.php");
+    }
+
+    exit();
 }
 ?>
+
 
 <!DOCTYPE html>
 <html lang="en">
@@ -66,6 +117,7 @@
 
     <div class="login-form">
       <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method="POST">
+      <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
         <label for="email"><i class="fa-solid fa-paper-plane">&nbsp;&nbsp;&nbsp;</i>Email</label>
         <input type="email" id="email" name="email" required>
 

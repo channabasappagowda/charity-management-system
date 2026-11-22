@@ -1,14 +1,30 @@
 <?php
+session_start();
+
+// Generate CSRF token
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 // Include the database connection
 include "conn.php";
 
 // Check if the form was submitted
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+
+    // Verify CSRF token
+    if (
+        !isset($_POST['csrf_token']) ||
+        !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])
+    ) {
+        die("Invalid CSRF token.");
+    }
+
     // Get the form data
-    $name = trim($_POST['name']);
-    $email = trim($_POST['email']);
-    $campaign = trim($_POST['campaign']);
-    $amount = trim($_POST['amount']);
+    $name = trim($_POST['name'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $campaign = trim($_POST['campaign'] ?? '');
+    $amount = trim($_POST['amount'] ?? '');
 
     // Validate inputs
     if (empty($name) || empty($email) || empty($campaign) || empty($amount)) {
@@ -22,9 +38,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     if ($stmt->execute()) {
         echo "<script>alert('Thank you for your generous donation!'); window.location.href='donate.php';</script>";
+        exit();
     } else {
-        echo "Error: " . $stmt->error;
+        error_log("Database error: " . $stmt->error);
+        echo "Something went wrong. Please try again later.";
     }
+
+    $stmt->close();
 }
 ?>
 
@@ -177,6 +197,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <h1><i class="fa-solid fa-hand-holding-dollar"></i>&nbsp;&nbsp;&nbsp;Make a Donation</h1>
                 <p>Your contribution can make a significant difference. Please fill out the form below to donate.</p>
                 <form action="donate.php" method="post">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
                     <div class="form-group">
                         <label for="name"><i class="fa-solid fa-pen-nib"></i>&nbsp;&nbsp;&nbsp;Full Name:</label>
                         <input type="text" id="name" name="name" placeholder="Enter your full name" required>

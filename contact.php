@@ -1,13 +1,29 @@
 <?php
-// Include database connection if you want to store contact messages in the database
+session_start();
+
+// Generate CSRF token
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+// Include database connection
 include "conn.php";
 
 // Check if the form was submitted
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+
+    // Verify CSRF token
+    if (
+        !isset($_POST['csrf_token']) ||
+        !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])
+    ) {
+        die("Invalid CSRF token.");
+    }
+
     // Get form data
-    $name = trim($_POST['name']);
-    $email = trim($_POST['email']);
-    $message = trim($_POST['message']);
+    $name = trim($_POST['name'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $message = trim($_POST['message'] ?? '');
 
     // Validate inputs
     if (empty($name) || empty($email) || empty($message)) {
@@ -15,18 +31,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         exit();
     }
 
-
     $stmt = $conn->prepare("INSERT INTO contact_messages (name,email, message) VALUES (?, ?, ?)");
     $stmt->bind_param("sss", $name, $email, $message);
 
     if ($stmt->execute()) {
         echo "<script>alert('Thank you '); window.location.href='contact.php';</script>";
+        exit();
     } else {
-        echo "Error: " . $stmt->error;
+        error_log("Database error: " . $stmt->error);
+        echo "Something went wrong. Please try again later.";
     }
+
+    $stmt->close();
 }
-
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -201,9 +218,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
       <h1>Contact Us</h1>
       <p>We'd love to hear from you! If you have any questions, feedback, or need support, please fill out the form or use the details below to reach us.</p>
       <div class="info">
-        <p><strong>Address:</strong> Vidyanagara, Davangere, 577005</p>
-        <p><strong>Email:</strong> <a href="mailto:harshithks95356@gmail.com">harshithks95356@gmail.com</a></p>
-        <p><strong>Phone:</strong> +91 9008909935</p>
+        <p><strong>Address:</strong> Your Organization Address</p>
+<p><strong>Email:</strong> <a href="mailto:your-email@example.com">your-email@example.com</a></p>
+<p><strong>Phone:</strong> +91 XXXXXXXXXX</p>
         <p><strong>Working Hours:</strong> Mon - Fri, 9:00 AM - 5:00 PM</p>
         <p><strong>Reach Us Through:</strong></p>
         <p>
@@ -219,6 +236,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <section class="contact-form">
       <h2>Any suggestions?</h2>
       <form action="contact.php" method="post">
+    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
         <div class="form-group">
           <label for="name"><i class="fa-solid fa-pen-nib"></i>&nbsp;&nbsp;&nbsp;Your Name:</label>
           <input type="text" id="name" name="name" placeholder="Enter your name" required>

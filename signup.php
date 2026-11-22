@@ -1,44 +1,78 @@
+
 <?php
-  // Start the session
-  include "conn.php";
+session_start();
+include "conn.php";
 
-  if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $name = trim($_POST['name']);
-    $email = trim($_POST['email']);
-    $password = trim($_POST['password']);
-    $role= trim($_POST['role']);
+// Generate CSRF token
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
+      // Verify CSRF token
+    if (
+        !isset($_POST['csrf_token']) ||
+        !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])
+    ) {
+        die("Invalid CSRF token.");
+    }
+    $name = trim($_POST['name'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $password = $_POST['password'] ?? '';
 
-    // Validate inputs
-    if (empty($name) || empty($email) || empty($password) || empty($role) ) {
+    // Validate required fields
+    if ($name === '' || $email === '' || $password === '') {
         echo "<script>alert('All fields are required!'); window.location.href='signup.php';</script>";
         exit();
-    } else if (strlen($password) < 6) {
+    }
+
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        echo "<script>alert('Enter a valid email address!'); window.location.href='signup.php';</script>";
+        exit();
+    }
+
+    if (strlen($password) < 6) {
         echo "<script>alert('Password must be at least 6 characters long!'); window.location.href='signup.php';</script>";
         exit();
     }
 
-    // Check if the username already exists
-    $stmt = $conn->prepare("SELECT * FROM sign WHERE email = ?");
+    // Check whether the email already exists
+    $stmt = $conn->prepare("SELECT email FROM sign WHERE email = ?");
     $stmt->bind_param("s", $email);
     $stmt->execute();
     $result = $stmt->get_result();
 
     if ($result->num_rows > 0) {
-        echo "<script>alert('user already exists. Please choose another!')</script>";
-    } else {
-        // Insert user into the database
-        $stmt = $conn->prepare("INSERT INTO sign (name,email, password,role) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("ssss", $name , $email,  $password, $role);
-
-        if ($stmt->execute()) {
-            echo "<script>alert('Registered Successfully !!!'); window.location.href='login.php';</script>";
-            exit();
-        } else {
-            echo "Error: " . $stmt->error;
-        }
+        echo "<script>alert('User already exists. Please use another email!'); window.location.href='signup.php';</script>";
+        exit();
     }
+
+    $stmt->close();
+
+    // Hash password before storing it
+    $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+
+    // Public registration creates only normal users
+    $role = 'user';
+
+    $stmt = $conn->prepare(
+        "INSERT INTO sign (name, email, password, role) VALUES (?, ?, ?, ?)"
+    );
+
+    $stmt->bind_param("ssss", $name, $email, $hashedPassword, $role);
+
+    if ($stmt->execute()) {
+        echo "<script>alert('Registered Successfully!'); window.location.href='login.php';</script>";
+        exit();
+    } else {
+        error_log("Signup database error: " . $stmt->error);
+        echo "<script>alert('Registration failed. Please try again.'); window.location.href='signup.php';</script>";
+        exit();
+    }
+
+    $stmt->close();
 }
 ?>
+
 
 <!DOCTYPE html>
 <html lang="en">
@@ -68,6 +102,7 @@
 
     <div class="signup-form">
       <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method="POST">
+      <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
         <label for="name"><i class="fa-solid fa-pen-nib"></i>&nbsp;&nbsp;&nbsp;Full Name</label>
         <input type="text" id="name" name="name" required>
 
@@ -77,11 +112,6 @@
         <label for="password"><i class="fa-solid fa-key"></i>&nbsp;&nbsp;&nbsp;Password</label>
         <input type="password" id="password" name="password" required>
 
-        <label for="role"><i class="fa-solid fa-user"></i>&nbsp;&nbsp;&nbsp;Sign up as</label>
-        <select id="role" name="role" required>
-          <option value="user">User</option>
-          <option value="admin">Admin</option>
-        </select>
 
         <button type="submit" class="btn"><i class="fa-solid fa-user"></i>&nbsp;&nbsp;&nbsp;Sign Up</button>
       </form>
